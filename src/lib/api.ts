@@ -1,5 +1,5 @@
 import { Game } from "./games";
-import { Conversation, ChatMessageData } from "./support/types";
+import { Conversation, ChatMessageData, CSATFeedback } from "./support/types";
 
 const API_BASE = typeof window !== "undefined" ? "" : "http://127.0.0.1:8000";
 
@@ -77,6 +77,16 @@ export async function fetchCopilotDraft(ticketId: string): Promise<{ draft: stri
     method: "POST",
   });
   if (!res.ok) throw new Error(`Failed to generate copilot draft: ${res.statusText}`);
+  return res.json();
+}
+
+export async function submitSupportFeedback(ticketId: string, feedback: CSATFeedback): Promise<Conversation> {
+  const res = await fetch(`${API_BASE}/api/support/tickets/${ticketId}/feedback`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(feedback),
+  });
+  if (!res.ok) throw new Error(`Failed to submit feedback: ${res.statusText}`);
   return res.json();
 }
 

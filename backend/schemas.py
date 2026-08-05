@@ -47,6 +47,11 @@ class ChatMessage(BaseModel):
     ts: float
     quickReplies: Optional[List[str]] = None
 
+class CSATFeedback(BaseModel):
+    rating: int = Field(..., ge=1, le=5)
+    tags: List[str] = Field(default_factory=list)
+    comment: Optional[str] = None
+
 class Conversation(BaseModel):
     id: str
     customer: str
@@ -59,6 +64,7 @@ class Conversation(BaseModel):
     escalatedAt: Optional[float] = None
     summary: Optional[str] = None
     isLive: Optional[bool] = False
+    feedback: Optional[CSATFeedback] = None
 
 class ChatRequest(BaseModel):
     ticket_id: Optional[str] = None

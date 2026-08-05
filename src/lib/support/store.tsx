@@ -8,11 +8,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { ChatMessageData, Conversation, MessageRole } from "./types";
+import type { ChatMessageData, Conversation, MessageRole, CSATFeedback } from "./types";
 import {
   sendSupportChat,
   sendAgentMessage as sendAgentMessageApi,
   resolveSupportTicket as resolveSupportTicketApi,
+  submitSupportFeedback as submitSupportFeedbackApi,
   fetchSupportTickets,
   getSupportWebSocketUrl,
 } from "@/lib/api";
@@ -146,6 +147,7 @@ type Ctx = {
   sendAgentMessage: (conversationId: string, text: string) => void;
   claimConversation: (conversationId: string) => void;
   resolveConversation: (conversationId: string) => void;
+  submitFeedback: (conversationId: string, feedback: CSATFeedback) => void;
   resetLive: () => void;
 };
 
@@ -434,6 +436,21 @@ export function SupportProvider({ children }: { children: ReactNode }) {
     [patch],
   );
 
+  const submitFeedback = useCallback(
+    async (id: string, feedback: CSATFeedback) => {
+      patch(id, (c) => ({ ...c, feedback }));
+      try {
+        const targetId = id === LIVE_ID && backendTicketId ? backendTicketId : id;
+        if (targetId !== LIVE_ID) {
+          await submitSupportFeedbackApi(targetId, feedback);
+        }
+      } catch {
+        /* Ignore offline */
+      }
+    },
+    [backendTicketId, patch],
+  );
+
   const resetLive = useCallback(() => {
     const fresh = seedConversations(Date.now()).find((c) => c.id === LIVE_ID)!;
     setBackendTicketId(null);
@@ -450,6 +467,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
       sendAgentMessage,
       claimConversation,
       resolveConversation,
+      submitFeedback,
       resetLive,
     }),
     [
@@ -458,6 +476,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
       claimConversation,
       conversations,
       resolveConversation,
+      submitFeedback,
       resetLive,
       sendAgentMessage,
       sendCustomerMessage,

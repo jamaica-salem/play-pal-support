@@ -12,6 +12,12 @@ export type ConversationStatus = "ai" | "waiting" | "agent" | "resolved";
 
 export type Priority = "low" | "normal" | "high";
 
+export type CSATFeedback = {
+  rating: number;
+  tags: string[];
+  comment?: string;
+};
+
 export type Conversation = {
   id: string;
   customer: string;
@@ -24,6 +30,7 @@ export type Conversation = {
   escalatedAt?: number | undefined;
   summary?: string | undefined;
   isLive?: boolean | undefined;
+  feedback?: CSATFeedback | undefined;
 };
 
 export const statusLabel: Record<ConversationStatus, string> = {

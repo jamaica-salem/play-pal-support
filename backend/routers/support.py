@@ -6,7 +6,7 @@ from typing import List, Optional
 from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from backend.schemas import (
     Conversation, ChatMessage, ChatRequest, ChatResponse,
-    SendAgentMessageRequest, ResolveTicketRequest
+    SendAgentMessageRequest, ResolveTicketRequest, CSATFeedback
 )
 from backend.data import CONVERSATIONS_DB
 from backend.support_ai import get_ai_reply, get_gemini_reply_stream, build_summary, generate_copilot_draft
@@ -141,6 +141,18 @@ def get_copilot_draft(ticket_id: str):
     ticket = CONVERSATIONS_DB[ticket_id]
     draft = generate_copilot_draft(ticket.topic, ticket.summary or "", ticket.messages)
     return {"draft": draft}
+
+@router.post("/tickets/{ticket_id}/feedback", response_model=Conversation)
+async def submit_ticket_feedback(ticket_id: str, feedback: CSATFeedback):
+    if ticket_id not in CONVERSATIONS_DB:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = CONVERSATIONS_DB[ticket_id]
+    ticket.feedback = feedback
+    await manager.broadcast_to_ticket(ticket_id, {
+        "type": "feedback_submitted",
+        "feedback": feedback.model_dump()
+    })
+    return ticket
 
 @router.websocket("/ws/{ticket_id}")
 async def websocket_endpoint(websocket: WebSocket, ticket_id: str):

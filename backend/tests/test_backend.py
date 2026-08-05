@@ -71,3 +71,15 @@ def test_copilot_draft_endpoint():
     data = response.json()
     assert "draft" in data
     assert len(data["draft"]) > 10
+
+def test_ticket_feedback_endpoint():
+    chat_res = client.post("/api/support/chat", json={"message": "Thank you for the quick game pricing info!"})
+    assert chat_res.status_code == 200
+    ticket_id = chat_res.json()["ticket"]["id"]
+
+    feedback_payload = {"rating": 5, "tags": ["Fast Resolution", "Clear Explanation"]}
+    res = client.post(f"/api/support/tickets/{ticket_id}/feedback", json=feedback_payload)
+    assert res.status_code == 200
+    data = res.json()
+    assert data["feedback"]["rating"] == 5
+    assert "Fast Resolution" in data["feedback"]["tags"]
