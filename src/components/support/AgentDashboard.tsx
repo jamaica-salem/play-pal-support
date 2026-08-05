@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { CheckCircle2, Clock, Gamepad2, Send, Sparkle, UserCheck } from "lucide-react";
+import { CheckCircle2, Clock, Gamepad2, Loader2, Send, Sparkle, UserCheck, Volume2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { ChatMessage, TypingIndicator } from "@/components/chat/ChatMessage";
@@ -8,15 +8,65 @@ import { PriorityBadge, StatusBadge } from "@/components/StatusBadge";
 import { useSupport } from "@/lib/support/store";
 import type { Conversation } from "@/lib/support/types";
 import { formatWaiting, useMounted } from "@/lib/time";
+import { fetchCopilotDraft } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 const order: Record<Conversation["status"], number> = { waiting: 0, agent: 1, ai: 2, resolved: 3 };
+
+const CANNED_MACROS = [
+  {
+    label: "🔄 Refund Approved",
+    text: "I have processed a full refund to your original payment method. Please allow 3–5 business days for the funds to land in your account.",
+  },
+  {
+    label: "📦 Shipping Info",
+    text: "Your order is currently in transit with GameVault Express. Tracking number: GVX-9931-4471, estimated delivery in 2 business days.",
+  },
+  {
+    label: "🔑 Key Resent",
+    text: "Your digital game key has been re-sent to your registered email address. Please check your inbox and spam folder.",
+  },
+  {
+    label: "⏳ Under Review",
+    text: "I'm escalating this issue to our senior logistics team for further investigation. We will update you within 24 hours.",
+  },
+];
+
+function playChimeAlert() {
+  try {
+    const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    const ctx = new AudioCtx();
+    const osc1 = ctx.createOscillator();
+    const osc2 = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    osc1.type = "sine";
+    osc2.type = "triangle";
+    osc1.frequency.setValueAtTime(587.33, ctx.currentTime); // D5
+    osc2.frequency.setValueAtTime(880.0, ctx.currentTime); // A5
+
+    gain.gain.setValueAtTime(0.15, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.6);
+
+    osc1.connect(gain);
+    osc2.connect(gain);
+    gain.connect(ctx.destination);
+
+    osc1.start();
+    osc2.start();
+    osc1.stop(ctx.currentTime + 0.6);
+    osc2.stop(ctx.currentTime + 0.6);
+  } catch {
+    /* Ignore audio restriction errors */
+  }
+}
 
 export function AgentDashboard() {
   const { conversations, agentTyping, claimConversation, resolveConversation, sendAgentMessage } =
     useSupport();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState("");
+  const [loadingDraft, setLoadingDraft] = useState(false);
   const mounted = useMounted();
   const [now, setNow] = useState(() => Date.now());
 
@@ -33,6 +83,28 @@ export function AgentDashboard() {
   const selected = conversations.find((c) => c.id === selectedId) ?? sorted[0];
 
   const waitingCount = conversations.filter((c) => c.status === "waiting").length;
+  const prevWaitingCount = useRef(waitingCount);
+
+  // Play audio chime notification when new ticket escalates to waiting
+  useEffect(() => {
+    if (waitingCount > prevWaitingCount.current) {
+      playChimeAlert();
+    }
+    prevWaitingCount.current = waitingCount;
+  }, [waitingCount]);
+
+  const handleGenerateAiDraft = async () => {
+    if (!selected) return;
+    setLoadingDraft(true);
+    try {
+      const res = await fetchCopilotDraft(selected.id);
+      setDraft(res.draft);
+    } catch {
+      setDraft(`Hi ${selected.customer.split(" ")[0]}, I've reviewed your conversation regarding ${selected.topic.toLowerCase()} and I am ready to help resolve this for you.`);
+    } finally {
+      setLoadingDraft(false);
+    }
+  };
 
   return (
     <div className="flex min-h-screen flex-col bg-surface">
@@ -48,6 +120,15 @@ export function AgentDashboard() {
             Agent: Dana R.
           </span>
           <div className="ml-auto flex items-center gap-3">
+            <button
+              type="button"
+              onClick={playChimeAlert}
+              title="Test Chime Sound"
+              className="inline-flex items-center gap-1 rounded-full border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <Volume2 className="h-3.5 w-3.5" />
+              Sound On
+            </button>
             <span className="inline-flex items-center gap-1.5 rounded-full bg-warning px-3 py-1 text-xs font-medium text-warning-foreground">
               <Clock className="h-3.5 w-3.5" />
               {waitingCount} waiting
@@ -133,13 +214,46 @@ export function AgentDashboard() {
                 }}
                 className="border-t border-border p-4"
               >
+                {/* 1-Click AI Copilot Draft & Canned Macros Toolbar */}
+                <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-semibold text-muted-foreground">Canned Macros:</span>
+                    {CANNED_MACROS.map((macro) => (
+                      <button
+                        key={macro.label}
+                        type="button"
+                        onClick={() => setDraft(macro.text)}
+                        className="rounded-lg border border-border bg-surface px-2.5 py-1 text-[11px] font-medium text-foreground transition-colors hover:border-primary hover:bg-card"
+                      >
+                        {macro.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={loadingDraft || selected.status === "resolved"}
+                    onClick={handleGenerateAiDraft}
+                    className="h-8 gap-1.5 border-primary/40 bg-primary/5 text-xs text-primary hover:bg-primary/10"
+                  >
+                    {loadingDraft ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    ) : (
+                      <Sparkle className="h-3.5 w-3.5" />
+                    )}
+                    Generate AI Draft
+                  </Button>
+                </div>
+
                 <Textarea
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   placeholder={
                     selected.status === "resolved"
                       ? "This conversation is resolved."
-                      : "Write a reply to the customer…"
+                      : "Write a reply or click 'Generate AI Draft'…"
                   }
                   disabled={selected.status === "resolved"}
                   rows={3}
@@ -194,12 +308,11 @@ export function AgentDashboard() {
           </div>
 
           <div className="rounded-2xl border border-border bg-surface p-5">
-            <h2 className="text-sm font-semibold">How to demo</h2>
+            <h2 className="text-sm font-semibold">Support Copilot Features</h2>
             <ol className="mt-3 space-y-2 text-xs leading-relaxed text-muted-foreground">
-              <li>1. Open the store and chat with GameAssist AI.</li>
-              <li>2. Ask something it can't answer, or tap “Talk to Human Agent”.</li>
-              <li>3. Return here — the chat appears as “Waiting for Agent”.</li>
-              <li>4. Accept the chat and reply; the customer sees your messages live.</li>
+              <li>1. <strong>Audio Chime:</strong> Plays a sound whenever a new ticket arrives.</li>
+              <li>2. <strong>AI Draft:</strong> Click ✨ <em>Generate AI Draft</em> for Gemini to draft a reply.</li>
+              <li>3. <strong>Macros:</strong> Click 🔄 <em>Refund Approved</em> or 📦 <em>Shipping Info</em> for 1-click templates.</li>
             </ol>
           </div>
         </aside>

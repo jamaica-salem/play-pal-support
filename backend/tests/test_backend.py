@@ -60,3 +60,14 @@ def test_double_charge_escalation():
     assert data["escalated"] is True
     assert data["ticket"]["status"] == "waiting"
     assert "billing" in data["reply"]["text"].lower() or "human" in data["reply"]["text"].lower()
+
+def test_copilot_draft_endpoint():
+    chat_res = client.post("/api/support/chat", json={"message": "I need help with my delayed game order."})
+    assert chat_res.status_code == 200
+    ticket_id = chat_res.json()["ticket"]["id"]
+
+    response = client.post(f"/api/support/tickets/{ticket_id}/generate-copilot-draft")
+    assert response.status_code == 200
+    data = response.json()
+    assert "draft" in data
+    assert len(data["draft"]) > 10

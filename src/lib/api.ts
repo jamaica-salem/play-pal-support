@@ -72,6 +72,14 @@ export async function resolveSupportTicket(ticketId: string, resolution?: string
   return res.json();
 }
 
+export async function fetchCopilotDraft(ticketId: string): Promise<{ draft: string }> {
+  const res = await fetch(`${API_BASE}/api/support/tickets/${ticketId}/generate-copilot-draft`, {
+    method: "POST",
+  });
+  if (!res.ok) throw new Error(`Failed to generate copilot draft: ${res.statusText}`);
+  return res.json();
+}
+
 export function getSupportWebSocketUrl(ticketId: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
   const host = typeof window !== "undefined" && window.location.host.includes("localhost")

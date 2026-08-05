@@ -188,6 +188,33 @@ STRICT BOUNDARY & SAFETY GUARDRAILS:
         logging.error(f"Gemini streaming failed: {e}")
         yield get_rule_based_reply(input_text).text
 
+def generate_copilot_draft(topic: str, summary: str, history: Optional[List] = None) -> str:
+    """Generate a polite, professional human agent response draft using Gemini API."""
+    if not GEMINI_API_KEY or len(GEMINI_API_KEY.strip()) < 10:
+        return f"Hi! Thanks for reaching out regarding {topic.lower()}. I've reviewed your conversation history and I am happy to assist you."
+
+    try:
+        client = genai.Client(api_key=GEMINI_API_KEY)
+        system_instruction = """You are Dana, a senior human customer support representative for GameVault store.
+Your task is to write a polite, professional, and helpful response draft to a customer whose ticket was escalated to human support.
+Acknowledge their specific concern, be direct and empathetic, and offer a clear resolution. Keep it concise (2-4 sentences). Do NOT say you are an AI."""
+
+        prompt = f"Customer Case Topic: {topic}\nCase Summary: {summary or 'Customer requested human agent assistance.'}\nWrite a professional human agent reply draft to the customer."
+        contents = build_gemini_contents(prompt, history)
+
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=0.4
+            )
+        )
+        return response.text.strip() if response.text else f"Hi! I've reviewed your request regarding {topic.lower()} and I can help resolve this for you right away."
+    except Exception as e:
+        logging.error(f"Error generating copilot draft: {e}")
+        return f"Hi! I've reviewed your request regarding {topic.lower()} and I can help resolve this for you right away."
+
 # --- Rule-Based Fallback Engine ---
 
 ESCALATION_WORDS = ["agent", "human", "support representative", "real person", "representative", "speak to someone", "talk to someone"]

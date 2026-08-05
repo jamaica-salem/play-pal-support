@@ -9,7 +9,7 @@ from backend.schemas import (
     SendAgentMessageRequest, ResolveTicketRequest
 )
 from backend.data import CONVERSATIONS_DB
-from backend.support_ai import get_ai_reply, get_gemini_reply_stream, build_summary
+from backend.support_ai import get_ai_reply, get_gemini_reply_stream, build_summary, generate_copilot_draft
 from backend.websocket_manager import manager
 
 router = APIRouter(prefix="/api/support", tags=["support"])
@@ -133,6 +133,14 @@ async def resolve_ticket(ticket_id: str, req: ResolveTicketRequest):
     })
 
     return ticket
+
+@router.post("/tickets/{ticket_id}/generate-copilot-draft")
+def get_copilot_draft(ticket_id: str):
+    if ticket_id not in CONVERSATIONS_DB:
+        raise HTTPException(status_code=404, detail="Ticket not found")
+    ticket = CONVERSATIONS_DB[ticket_id]
+    draft = generate_copilot_draft(ticket.topic, ticket.summary or "", ticket.messages)
+    return {"draft": draft}
 
 @router.websocket("/ws/{ticket_id}")
 async def websocket_endpoint(websocket: WebSocket, ticket_id: str):
