@@ -85,7 +85,7 @@ export function AgentDashboard() {
                     <StatusBadge status={c.status} />
                     <span className="text-[11px] text-muted-foreground">
                       {mounted
-                        ? `${formatWaiting(c.escalatedAt ?? c.createdAt, now)} waiting`
+                        ? `${formatWaiting(c.escalatedAt ?? c.createdAt, now)}${c.status === "waiting" ? " waiting" : " ago"}`
                         : "—"}
                     </span>
                   </div>
