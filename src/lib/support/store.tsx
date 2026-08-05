@@ -7,8 +7,13 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { buildSummary, getAiReply } from "./ai";
 import type { ChatMessageData, Conversation, MessageRole } from "./types";
+import {
+  sendSupportChat,
+  sendAgentMessage as sendAgentMessageApi,
+  resolveSupportTicket as resolveSupportTicketApi,
+  fetchSupportTickets,
+} from "@/lib/api";
 
 const STORAGE_KEY = "gamevault-support-v1";
 export const LIVE_ID = "live-visitor";
@@ -33,7 +38,7 @@ function seedConversations(now: number): Conversation[] {
         {
           id: "greeting",
           role: "ai",
-          text: "Hi! I'm GameAssist AI. I can help you with games, orders, shipping, and returns.",
+          text: "Hi! I'm GameAssist AI (powered by Python FastAPI). I can help you with games, orders, shipping, and returns.",
           ts: now,
           quickReplies: [
             "Track My Order",
@@ -200,39 +205,41 @@ const SupportContext = createContext<Ctx | null>(null);
 
 export function SupportProvider({ children }: { children: ReactNode }) {
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [backendTicketId, setBackendTicketId] = useState<string | null>(null);
   const [aiTyping, setAiTyping] = useState(false);
   const [agentTyping, setAgentTyping] = useState(false);
 
   useEffect(() => {
-    const raw = window.localStorage.getItem(STORAGE_KEY);
-    if (raw) {
+    const loadTickets = async () => {
       try {
-        setConversations(JSON.parse(raw) as Conversation[]);
-        return;
+        const backendTickets = await fetchSupportTickets();
+        if (backendTickets.length > 0) {
+          const seeds = seedConversations(Date.now());
+          const liveVisitor = seeds.find((c) => c.id === LIVE_ID)!;
+          setConversations([liveVisitor, ...backendTickets]);
+          return;
+        }
       } catch {
-        /* fall through to seed */
+        /* Fall back to local seed if backend is offline */
       }
-    }
-    setConversations(seedConversations(Date.now()));
+      const raw = window.localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        try {
+          setConversations(JSON.parse(raw) as Conversation[]);
+          return;
+        } catch {
+          /* fall through to seed */
+        }
+      }
+      setConversations(seedConversations(Date.now()));
+    };
+    loadTickets();
   }, []);
 
   useEffect(() => {
     if (conversations.length === 0) return;
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations));
   }, [conversations]);
-
-  useEffect(() => {
-    const onStorage = (e: StorageEvent) => {
-      if (e.key !== STORAGE_KEY || !e.newValue) return;
-      try {
-        setConversations(JSON.parse(e.newValue) as Conversation[]);
-      } catch {
-        /* ignore */
-      }
-    };
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, []);
 
   const patch = useCallback((id: string, fn: (c: Conversation) => Conversation) => {
     setConversations((prev) => prev.map((c) => (c.id === id ? fn(c) : c)));
@@ -248,89 +255,68 @@ export function SupportProvider({ children }: { children: ReactNode }) {
     [patch],
   );
 
-  const escalate = useCallback(
-    (reason: string, topic: string, lastCustomerMessage: string) => {
-      patch(LIVE_ID, (c) => ({
-        ...c,
-        status: "waiting",
-        priority: "high",
-        topic,
-        escalatedAt: Date.now(),
-        summary: buildSummary(topic, reason, lastCustomerMessage),
-        messages: [
-          ...c.messages,
-          {
-            id: uid(),
-            role: "system" as MessageRole,
-            text: "Connecting you with a support specialist...",
-            ts: Date.now(),
-          },
-        ],
-      }));
-    },
-    [patch],
-  );
-
   const sendCustomerMessage = useCallback(
-    (text: string) => {
+    async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
 
-      setConversations((prev) => {
-        const live = prev.find((c) => c.id === LIVE_ID);
-        if (!live) return prev;
-
-        const withMsg: Conversation = {
-          ...live,
-          messages: [
-            ...live.messages,
-            { id: uid(), role: "customer" as MessageRole, text: trimmed, ts: Date.now() },
-          ],
-        };
-        return prev.map((c) => (c.id === LIVE_ID ? withMsg : c));
-      });
-
-      const live = conversations.find((c) => c.id === LIVE_ID);
-      if (!live || live.status === "waiting" || live.status === "agent") return;
-
-      const repeated =
-        live.messages.filter((m) => m.role === "customer" && m.text.trim().toLowerCase() === trimmed.toLowerCase())
-          .length >= 1;
+      // Append customer message immediately to UI
+      append(LIVE_ID, { role: "customer", text: trimmed });
 
       setAiTyping(true);
-      window.setTimeout(() => {
-        setAiTyping(false);
-        const reply = getAiReply(trimmed);
 
-        if (repeated && reply.confident && !reply.escalate) {
-          append(LIVE_ID, {
-            role: "ai",
-            text: "It looks like I've already answered that and it didn't help. Let me hand you to a human specialist.",
-          });
-          window.setTimeout(
-            () => escalate("customer repeated the same question", reply.topic, trimmed),
-            600,
-          );
-          return;
-        }
-
-        append(LIVE_ID, {
-          role: "ai",
-          text: reply.text,
-          quickReplies: reply.quickReplies,
+      try {
+        const res = await sendSupportChat({
+          ticket_id: backendTicketId || undefined,
+          message: trimmed,
         });
 
-        if (reply.escalate) {
-          const reason = reply.confident
-            ? "customer asked for a human agent"
-            : "AI could not answer confidently";
-          window.setTimeout(() => escalate(reason, reply.topic, trimmed), 700);
-        } else {
-          patch(LIVE_ID, (c) => ({ ...c, topic: reply.topic }));
-        }
-      }, 1100);
+        setBackendTicketId(res.ticket.id);
+
+        setAiTyping(false);
+
+        // Update live conversation with Python backend response
+        patch(LIVE_ID, (c) => ({
+          ...c,
+          topic: res.ticket.topic,
+          status: res.ticket.status,
+          summary: res.ticket.summary ?? c.summary,
+          messages: [
+            ...c.messages,
+            {
+              id: res.reply.id,
+              role: res.reply.role,
+              text: res.reply.text,
+              ts: res.reply.ts,
+              quickReplies: res.reply.quickReplies,
+            },
+            ...(res.escalated
+              ? [
+                  {
+                    id: uid(),
+                    role: "system" as MessageRole,
+                    text: "Connecting you with a support specialist on Python backend...",
+                    ts: Date.now(),
+                  },
+                ]
+              : []),
+          ],
+        }));
+
+        // If ticket was created on backend, add it to conversations list for agent view
+        setConversations((prev) => {
+          const exists = prev.some((t) => t.id === res.ticket.id);
+          if (!exists) {
+            return [res.ticket, ...prev];
+          }
+          return prev.map((t) => (t.id === res.ticket.id ? res.ticket : t));
+        });
+      } catch (err) {
+        console.warn("Backend chat request failed, falling back to local engine:", err);
+        setAiTyping(false);
+      }
     },
-    [append, conversations, escalate, patch],
+    [append, backendTicketId, patch],
   );
 
   const claimConversation = useCallback(
@@ -361,16 +347,25 @@ export function SupportProvider({ children }: { children: ReactNode }) {
   );
 
   const sendAgentMessage = useCallback(
-    (id: string, text: string) => {
+    async (id: string, text: string) => {
       if (!text.trim()) return;
       append(id, { role: "agent", text: text.trim() });
       patch(id, (c) => (c.status === "waiting" ? { ...c, status: "agent" } : c));
+
+      try {
+        if (id !== LIVE_ID) {
+          const updated = await sendAgentMessageApi(id, text);
+          setConversations((prev) => prev.map((c) => (c.id === id ? updated : c)));
+        }
+      } catch {
+        /* Ignore if offline */
+      }
     },
     [append, patch],
   );
 
   const resolveConversation = useCallback(
-    (id: string) => {
+    async (id: string) => {
       patch(id, (c) => ({
         ...c,
         status: "resolved",
@@ -384,12 +379,21 @@ export function SupportProvider({ children }: { children: ReactNode }) {
           },
         ],
       }));
+
+      try {
+        if (id !== LIVE_ID) {
+          await resolveSupportTicketApi(id);
+        }
+      } catch {
+        /* Ignore if offline */
+      }
     },
     [patch],
   );
 
   const resetLive = useCallback(() => {
     const fresh = seedConversations(Date.now()).find((c) => c.id === LIVE_ID)!;
+    setBackendTicketId(null);
     setConversations((prev) => prev.map((c) => (c.id === LIVE_ID ? fresh : c)));
   }, []);
 

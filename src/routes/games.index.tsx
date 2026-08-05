@@ -1,10 +1,11 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { Search } from "lucide-react";
 import { StoreLayout } from "@/components/StoreLayout";
 import { ProductGrid } from "@/components/ProductGrid";
 import { Input } from "@/components/ui/input";
-import { categories, games } from "@/lib/games";
+import { categories as localCategories, games as localGames, Game } from "@/lib/games";
+import { fetchGames } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
 type GamesSearch = { category?: string };
@@ -34,17 +35,34 @@ function BrowseGames() {
   const { category } = Route.useSearch();
   const [query, setQuery] = useState("");
   const [active, setActive] = useState<string>(category ?? "All");
+  const [gamesList, setGamesList] = useState<Game[]>(localGames);
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchGames()
+      .then((data) => {
+        if (isMounted && data.length > 0) {
+          setGamesList(data);
+        }
+      })
+      .catch((err) => {
+        console.warn("Could not load games from Python API, using fallback data:", err);
+      });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return games.filter((g) => {
+    return gamesList.filter((g) => {
       const matchesCategory =
         active === "All" || g.category === active || g.platforms.some((p) => p.includes(active));
       const matchesQuery =
         !q || g.title.toLowerCase().includes(q) || g.genre.toLowerCase().includes(q);
       return matchesCategory && matchesQuery;
     });
-  }, [active, query]);
+  }, [active, gamesList, query]);
 
   return (
     <StoreLayout>
@@ -52,7 +70,7 @@ function BrowseGames() {
         <div className="mx-auto max-w-7xl px-4 py-10 sm:px-6">
           <h1 className="text-3xl font-semibold tracking-tight">Browse games</h1>
           <p className="mt-2 text-sm text-muted-foreground">
-            {filtered.length} of {games.length} titles shown
+            {filtered.length} of {gamesList.length} titles shown
           </p>
 
           <div className="relative mt-6 max-w-xl">
@@ -66,7 +84,7 @@ function BrowseGames() {
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2">
-            {["All", ...categories.map((c) => c.name)].map((c) => (
+            {["All", ...localCategories.map((c) => c.name)].map((c) => (
               <button
                 key={c}
                 type="button"
