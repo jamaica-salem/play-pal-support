@@ -38,7 +38,7 @@ function seedConversations(now: number): Conversation[] {
         {
           id: "greeting",
           role: "ai",
-          text: "Hi! I'm GameAssist AI (powered by Python FastAPI). I can help you with games, orders, shipping, and returns.",
+          text: "Hi! I'm GameAssist AI. I can help you with games, orders, shipping, and returns.",
           ts: now,
           quickReplies: [
             "Track My Order",
@@ -295,7 +295,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
                   {
                     id: uid(),
                     role: "system" as MessageRole,
-                    text: "Connecting you with a support specialist on Python backend...",
+                    text: "Connecting you with a support specialist...",
                     ts: Date.now(),
                   },
                 ]
