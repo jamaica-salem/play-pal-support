@@ -23,17 +23,40 @@ export function ChatMessage({ message }: { message: ChatMessageData }) {
   }
 
   const isCustomer = message.role === "customer";
+  const isAgent = message.role === "agent";
+  const isAi = message.role === "ai";
 
   return (
     <div className={cn("flex gap-2", isCustomer ? "flex-row-reverse" : "flex-row")}>
       <Avatar role={message.role} />
       <div className={cn("flex max-w-[80%] flex-col gap-1", isCustomer && "items-end")}>
+        <div className={cn("flex items-center gap-1.5 text-[11px] font-semibold", isCustomer ? "flex-row-reverse text-muted-foreground" : "flex-row text-foreground")}>
+          {isCustomer && <span>You</span>}
+          {isAi && (
+            <>
+              <span className="text-primary font-bold">AI Agent</span>
+              <span className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                Bot
+              </span>
+            </>
+          )}
+          {isAgent && (
+            <>
+              <span className="text-success-foreground font-bold">Live Agent (Dana)</span>
+              <span className="rounded-full bg-success/20 px-1.5 py-0.5 text-[9px] font-medium text-success-foreground">
+                Human
+              </span>
+            </>
+          )}
+        </div>
         <div
           className={cn(
-            "whitespace-pre-line rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed",
+            "whitespace-pre-line rounded-2xl px-3.5 py-2.5 text-sm leading-relaxed shadow-sm",
             isCustomer
               ? "rounded-br-md bg-primary text-primary-foreground"
-              : "rounded-bl-md border border-border bg-surface text-foreground",
+              : isAgent
+                ? "rounded-bl-md border border-success/30 bg-success/10 text-foreground"
+                : "rounded-bl-md border border-border bg-surface text-foreground",
           )}
         >
           {message.text}

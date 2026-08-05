@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, ChevronDown, MessageCircle, RotateCcw, Send, X } from "lucide-react";
+import { Bot, ChevronDown, Headset, MessageCircle, RotateCcw, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChatMessage, TypingIndicator } from "@/components/chat/ChatMessage";
@@ -47,14 +47,20 @@ export function ChatWidget() {
     <>
       {open && (
         <div className="fixed bottom-24 right-4 z-50 flex h-[560px] w-[calc(100vw-2rem)] max-w-[400px] flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-[var(--shadow-float)] sm:right-6">
-          <div className="flex items-center gap-3 border-b border-border bg-primary px-4 py-3">
+          <div className={cn("flex items-center gap-3 border-b border-border px-4 py-3 transition-colors", status === "agent" ? "bg-emerald-700" : "bg-primary")}>
             <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary-foreground/15">
-              <Bot className="h-5 w-5 text-primary-foreground" />
+              {status === "agent" ? (
+                <Headset className="h-5 w-5 text-primary-foreground" />
+              ) : (
+                <Bot className="h-5 w-5 text-primary-foreground" />
+              )}
             </span>
             <div className="min-w-0">
-              <p className="text-sm font-semibold text-primary-foreground">GameAssist AI</p>
+              <p className="text-sm font-semibold text-primary-foreground">
+                {status === "agent" ? "Dana (Live Agent)" : "GameAssist (AI Agent)"}
+              </p>
               <p className="truncate text-xs text-primary-foreground/80">
-                GameVault customer support
+                {status === "agent" ? "Human Support Specialist" : "AI Automated Support"}
               </p>
             </div>
             <div className="ml-auto flex items-center gap-1">
