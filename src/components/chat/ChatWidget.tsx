@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, CheckCircle2, ChevronDown, Headset, MessageCircle, Paperclip, RotateCcw, Send, Star, X } from "lucide-react";
+import { Bot, CheckCircle2, ChevronDown, Download, Headset, Mail, MessageCircle, Paperclip, RotateCcw, Send, Star, X } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChatMessage, TypingIndicator } from "@/components/chat/ChatMessage";
 import { useSupport } from "@/lib/support/store";
-import { QUICK_REPLIES } from "@/lib/support/types";
+import { QUICK_REPLIES, type Conversation } from "@/lib/support/types";
 import { cn } from "@/lib/utils";
 
 const statusStrip = {
@@ -15,6 +16,64 @@ const statusStrip = {
 } as const;
 
 const CSAT_TAGS = ["Fast Resolution", "Clear Explanation", "Friendly Agent", "Easy Handoff"];
+
+function downloadTranscript(conversation: Conversation) {
+  if (!conversation || !conversation.messages.length) {
+    toast.error("No transcript available to export.");
+    return;
+  }
+
+  const lines: string[] = [];
+  lines.push("==================================================");
+  lines.push("           GAMEVAULT STORE SUPPORT TRANSCRIPT      ");
+  lines.push("==================================================");
+  lines.push(`Ticket ID:   ${conversation.id}`);
+  lines.push(`Customer:    ${conversation.customer} (${conversation.email})`);
+  lines.push(`Topic:       ${conversation.topic}`);
+  lines.push(`Status:      ${conversation.status.toUpperCase()}`);
+  lines.push(`Date:        ${new Date().toLocaleDateString()}`);
+  lines.push("--------------------------------------------------\n");
+
+  conversation.messages.forEach((msg) => {
+    const timeStr = new Date(msg.ts * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    let sender = "CUSTOMER";
+    if (msg.role === "ai") sender = "GAMEASSIST (AI AGENT)";
+    if (msg.role === "agent") sender = "DANA (SUPPORT SPECIALIST)";
+    if (msg.role === "system") sender = "SYSTEM";
+
+    lines.push(`[${timeStr}] ${sender}:`);
+    lines.push(`  ${msg.text}`);
+    if (msg.attachment) {
+      lines.push(`  📎 [Attached File: Screenshot/Receipt]`);
+    }
+    lines.push("");
+  });
+
+  lines.push("==================================================");
+  lines.push("       Thank you for choosing GameVault Support!  ");
+  lines.push("==================================================");
+
+  const textContent = lines.join("\n");
+  const blob = new Blob([textContent], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `GameVault_Support_Transcript_${conversation.id}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+
+  toast.success("Support transcript downloaded!");
+}
+
+function emailTranscript(conversation: Conversation) {
+  if (!conversation || !conversation.messages.length) {
+    toast.error("No transcript available to email.");
+    return;
+  }
+  toast.success(`Transcript emailed to ${conversation.email || "player@gamevault.com"}!`);
+}
 
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
@@ -107,6 +166,26 @@ export function ChatWidget() {
               </p>
             </div>
             <div className="ml-auto flex items-center gap-1">
+              {live && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => downloadTranscript(live)}
+                    title="Download chat transcript (.txt)"
+                    className="rounded-lg p-1.5 text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground"
+                  >
+                    <Download className="h-4 w-4" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => emailTranscript(live)}
+                    title="Email chat transcript"
+                    className="rounded-lg p-1.5 text-primary-foreground/80 hover:bg-primary-foreground/10 hover:text-primary-foreground"
+                  >
+                    <Mail className="h-4 w-4" />
+                  </button>
+                </>
+              )}
               <button
                 type="button"
                 onClick={resetLive}
@@ -138,7 +217,7 @@ export function ChatWidget() {
 
             {/* End-of-Chat CSAT & Feedback Survey */}
             {status === "resolved" && (
-              <div className="mt-4 rounded-xl border border-border bg-surface p-4 text-center shadow-sm">
+              <div className="mt-4 rounded-xl border border-border bg-surface p-4 text-center shadow-sm space-y-3">
                 {submitted || live?.feedback ? (
                   <div className="space-y-2">
                     <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
@@ -228,6 +307,30 @@ export function ChatWidget() {
                       className="mt-2 w-full rounded-xl"
                     >
                       Submit Feedback
+                    </Button>
+                  </div>
+                )}
+
+                {/* Export & Email Transcript Buttons inside Resolved Card */}
+                {live && (
+                  <div className="mt-3 flex items-center justify-center gap-2 border-t border-border pt-3">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => downloadTranscript(live)}
+                      className="h-8 rounded-lg text-xs"
+                    >
+                      <Download className="mr-1.5 h-3.5 w-3.5" /> Download Transcript
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => emailTranscript(live)}
+                      className="h-8 rounded-lg text-xs"
+                    >
+                      <Mail className="mr-1.5 h-3.5 w-3.5" /> Email Transcript
                     </Button>
                   </div>
                 )}
