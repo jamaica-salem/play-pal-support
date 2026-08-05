@@ -53,9 +53,28 @@ def escalate_to_human_agent(reason: str) -> str:
     """Escalate the conversation to a human support specialist (used for double charges, duplicate billing, refunds requiring human action, complex technical bugs, or when the user asks for a human)."""
     return f"ESCALATED_TO_HUMAN: {reason}"
 
+def build_gemini_contents(input_text: str, history: Optional[List] = None) -> List[types.Content]:
+    """Format past conversation messages into Gemini multi-turn types.Content objects."""
+    contents: List[types.Content] = []
+    if history:
+        for msg in history:
+            role_str = getattr(msg, "role", None) or (msg.get("role") if isinstance(msg, dict) else None)
+            text_str = getattr(msg, "text", None) or (msg.get("text") if isinstance(msg, dict) else None)
+            if not text_str or not role_str:
+                continue
+            if role_str == "customer":
+                contents.append(types.Content(role="user", parts=[types.Part.from_text(text=text_str)]))
+            elif role_str == "ai":
+                contents.append(types.Content(role="model", parts=[types.Part.from_text(text=text_str)]))
+
+    if not contents or contents[-1].parts[0].text != input_text:
+        contents.append(types.Content(role="user", parts=[types.Part.from_text(text=input_text)]))
+
+    return contents
+
 # --- Gemini API Generator ---
 
-def get_gemini_reply(input_text: str) -> Optional[AiReplyResult]:
+def get_gemini_reply(input_text: str, history: Optional[List] = None) -> Optional[AiReplyResult]:
     if not GEMINI_API_KEY or len(GEMINI_API_KEY.strip()) < 10:
         return None
 
@@ -75,9 +94,11 @@ STRICT BOUNDARY & SAFETY GUARDRAILS:
    - For game pricing/stock, call `check_game_inventory`.
 """
 
+        contents_payload = build_gemini_contents(input_text, history)
+
         response = client.models.generate_content(
             model="gemini-2.0-flash",
-            contents=input_text,
+            contents=contents_payload,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 tools=[lookup_order, check_game_inventory, escalate_to_human_agent],
@@ -128,7 +149,7 @@ STRICT BOUNDARY & SAFETY GUARDRAILS:
         logging.error(f"Gemini API call failed: {e}")
         return None
 
-def get_gemini_reply_stream(input_text: str):
+def get_gemini_reply_stream(input_text: str, history: Optional[List] = None):
     """Generator function yielding Gemini response chunks in real time for WebSockets."""
     if not GEMINI_API_KEY or len(GEMINI_API_KEY.strip()) < 10:
         yield get_rule_based_reply(input_text).text
@@ -149,9 +170,11 @@ STRICT BOUNDARY & SAFETY GUARDRAILS:
 5. DO NOT make up order numbers, prices, or policies without using backend tools.
 """
 
+        contents_payload = build_gemini_contents(input_text, history)
+
         response_stream = client.models.generate_content_stream(
             model="gemini-2.0-flash",
-            contents=input_text,
+            contents=contents_payload,
             config=types.GenerateContentConfig(
                 system_instruction=system_instruction,
                 tools=[lookup_order, check_game_inventory, escalate_to_human_agent],
@@ -217,9 +240,9 @@ def get_rule_based_reply(input_text: str) -> AiReplyResult:
         topic="General inquiry"
     )
 
-def get_ai_reply(input_text: str) -> AiReplyResult:
-    # Try Gemini LLM first with tools
-    llm_res = get_gemini_reply(input_text)
+def get_ai_reply(input_text: str, history: Optional[List] = None) -> AiReplyResult:
+    # Try Gemini LLM first with tools and multi-turn history
+    llm_res = get_gemini_reply(input_text, history=history)
     if llm_res:
         return llm_res
     # Fallback to rule-based logic if LLM key is absent or fails

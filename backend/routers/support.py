@@ -53,8 +53,8 @@ def handle_chat(req: ChatRequest):
         ticket = CONVERSATIONS_DB[ticket_id]
         ticket.messages.append(customer_msg)
 
-    # Get AI response using support_ai engine
-    reply_res = get_ai_reply(req.message)
+    # Get AI response using support_ai engine with multi-turn history
+    reply_res = get_ai_reply(req.message, history=ticket.messages)
     ticket.topic = reply_res.topic
 
     should_escalate = reply_res.escalate or (not reply_res.confident)
@@ -193,9 +193,9 @@ async def websocket_endpoint(websocket: WebSocket, ticket_id: str):
                 "ts": time.time()
             })
 
-            # Stream Gemini AI response word-by-word
+            # Stream Gemini AI response word-by-word with multi-turn history
             full_reply_text = ""
-            for chunk in get_gemini_reply_stream(user_text):
+            for chunk in get_gemini_reply_stream(user_text, history=ticket.messages):
                 full_reply_text += chunk
                 await manager.broadcast_to_ticket(ticket_id, {
                     "type": "ai_stream_chunk",
@@ -205,7 +205,7 @@ async def websocket_endpoint(websocket: WebSocket, ticket_id: str):
                 await asyncio.sleep(0.02) # Smooth typing delay
 
             # Evaluate final response status & escalation
-            reply_eval = get_ai_reply(user_text)
+            reply_eval = get_ai_reply(user_text, history=ticket.messages)
             ticket.topic = reply_eval.topic
             should_escalate = reply_eval.escalate or (not reply_eval.confident)
 
