@@ -4,6 +4,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -13,6 +14,7 @@ import {
   sendAgentMessage as sendAgentMessageApi,
   resolveSupportTicket as resolveSupportTicketApi,
   fetchSupportTickets,
+  getSupportWebSocketUrl,
 } from "@/lib/api";
 
 const STORAGE_KEY = "gamevault-support-v1";
@@ -132,60 +134,6 @@ function seedConversations(now: number): Conversation[] {
         },
       ],
     },
-    {
-      id: "c-4",
-      customer: "Priya Nair",
-      email: "priya.nair@mail.com",
-      status: "ai",
-      priority: "low",
-      topic: "Platform question — Elden Ring",
-      createdAt: now - 4 * MIN,
-      messages: [
-        {
-          id: "c4-1",
-          role: "customer",
-          text: "What platforms support Elden Ring?",
-          ts: now - 4 * MIN,
-        },
-        {
-          id: "c4-2",
-          role: "ai",
-          text: "Elden Ring is available on PC, PlayStation 5, and Xbox Series X|S. Cross-platform saves are not supported.",
-          ts: now - 4 * MIN,
-        },
-      ],
-    },
-    {
-      id: "c-5",
-      customer: "Tom Becker",
-      email: "tbecker@mail.com",
-      status: "resolved",
-      priority: "low",
-      topic: "Refund policy question",
-      createdAt: now - 90 * MIN,
-      summary:
-        "Customer asked about the return window for an unopened Switch game. AI answered with the 30-day policy and the customer confirmed no further help was needed.",
-      messages: [
-        {
-          id: "c5-1",
-          role: "customer",
-          text: "Can I return an unopened Switch game?",
-          ts: now - 90 * MIN,
-        },
-        {
-          id: "c5-2",
-          role: "ai",
-          text: "Yes — unopened physical games can be returned within 30 days for a full refund.",
-          ts: now - 89 * MIN,
-        },
-        {
-          id: "c5-3",
-          role: "customer",
-          text: "Perfect, thanks!",
-          ts: now - 88 * MIN,
-        },
-      ],
-    },
   ];
 }
 
@@ -208,6 +156,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
   const [backendTicketId, setBackendTicketId] = useState<string | null>(null);
   const [aiTyping, setAiTyping] = useState(false);
   const [agentTyping, setAgentTyping] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
 
   useEffect(() => {
     const loadTickets = async () => {
@@ -255,14 +204,113 @@ export function SupportProvider({ children }: { children: ReactNode }) {
     [patch],
   );
 
+  // Establish WebSocket connection when ticket ID is active
+  useEffect(() => {
+    if (!backendTicketId) return;
+
+    const wsUrl = getSupportWebSocketUrl(backendTicketId);
+    let ws: WebSocket | null = null;
+
+    try {
+      ws = new WebSocket(wsUrl);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        console.log("WebSocket connected to backend ticket room:", backendTicketId);
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const data = JSON.parse(event.data);
+
+          if (data.type === "ai_stream_start") {
+            setAiTyping(true);
+            patch(LIVE_ID, (c) => ({
+              ...c,
+              messages: [
+                ...c.messages,
+                { id: data.msg_id, role: "ai", text: "", ts: data.ts },
+              ],
+            }));
+          } else if (data.type === "ai_stream_chunk") {
+            patch(LIVE_ID, (c) => ({
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === data.msg_id ? { ...m, text: m.text + data.chunk } : m,
+              ),
+            }));
+          } else if (data.type === "ai_stream_end") {
+            setAiTyping(false);
+            patch(LIVE_ID, (c) => ({
+              ...c,
+              status: data.status ?? c.status,
+              summary: data.summary ?? c.summary,
+              messages: c.messages.map((m) =>
+                m.id === data.msg_id
+                  ? {
+                      ...m,
+                      text: data.message?.text || m.text,
+                      quickReplies: data.message?.quickReplies,
+                    }
+                  : m,
+              ),
+            }));
+          } else if (data.type === "agent_message") {
+            setAgentTyping(false);
+            patch(LIVE_ID, (c) => {
+              const exists = c.messages.some((m) => m.id === data.message.id);
+              if (exists) return c;
+              return {
+                ...c,
+                status: data.status ?? "agent",
+                messages: [
+                  ...c.messages,
+                  {
+                    id: data.message.id,
+                    role: "agent",
+                    text: data.message.text,
+                    ts: data.message.ts,
+                  },
+                ],
+              };
+            });
+          }
+        } catch (e) {
+          console.error("Error parsing WebSocket frame:", e);
+        }
+      };
+
+      ws.onerror = (err) => {
+        console.warn("WebSocket error:", err);
+      };
+    } catch (e) {
+      console.warn("Could not create WebSocket, falling back to HTTP:", e);
+    }
+
+    return () => {
+      ws?.close();
+    };
+  }, [backendTicketId, patch]);
+
   const sendCustomerMessage = useCallback(
     async (text: string) => {
       const trimmed = text.trim();
       if (!trimmed) return;
 
-      // Append customer message immediately to UI
-      append(LIVE_ID, { role: "customer", text: trimmed });
+      // If WebSocket is connected, send over WebSocket for instant streaming
+      if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({
+            message: trimmed,
+            customer_name: "Gamer",
+            customer_email: "player@gamevault.com",
+          }),
+        );
+        return;
+      }
 
+      // Fallback to HTTP POST if WebSocket is connecting or offline
+      append(LIVE_ID, { role: "customer", text: trimmed });
       setAiTyping(true);
 
       try {
@@ -272,10 +320,8 @@ export function SupportProvider({ children }: { children: ReactNode }) {
         });
 
         setBackendTicketId(res.ticket.id);
-
         setAiTyping(false);
 
-        // Update live conversation with Python backend response
         patch(LIVE_ID, (c) => ({
           ...c,
           topic: res.ticket.topic,
@@ -303,12 +349,9 @@ export function SupportProvider({ children }: { children: ReactNode }) {
           ],
         }));
 
-        // If ticket was created on backend, add it to conversations list for agent view
         setConversations((prev) => {
           const exists = prev.some((t) => t.id === res.ticket.id);
-          if (!exists) {
-            return [res.ticket, ...prev];
-          }
+          if (!exists) return [res.ticket, ...prev];
           return prev.map((t) => (t.id === res.ticket.id ? res.ticket : t));
         });
       } catch (err) {

@@ -71,3 +71,11 @@ export async function resolveSupportTicket(ticketId: string, resolution?: string
   if (!res.ok) throw new Error(`Failed to resolve ticket: ${res.statusText}`);
   return res.json();
 }
+
+export function getSupportWebSocketUrl(ticketId: string): string {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host = typeof window !== "undefined" && window.location.host.includes("localhost")
+    ? "localhost:8000"
+    : window.location.host;
+  return `${protocol}//${host}/api/support/ws/${ticketId}`;
+}

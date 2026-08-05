@@ -1,13 +1,16 @@
+import asyncio
+import json
 import time
 import uuid
 from typing import List, Optional
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, WebSocket, WebSocketDisconnect
 from backend.schemas import (
     Conversation, ChatMessage, ChatRequest, ChatResponse,
     SendAgentMessageRequest, ResolveTicketRequest
 )
 from backend.data import CONVERSATIONS_DB
-from backend.support_ai import get_ai_reply, build_summary
+from backend.support_ai import get_ai_reply, get_gemini_reply_stream, build_summary
+from backend.websocket_manager import manager
 
 router = APIRouter(prefix="/api/support", tags=["support"])
 
@@ -79,7 +82,7 @@ def handle_chat(req: ChatRequest):
     )
 
 @router.post("/tickets/{ticket_id}/agent-message", response_model=Conversation)
-def send_agent_message(ticket_id: str, req: SendAgentMessageRequest):
+async def send_agent_message(ticket_id: str, req: SendAgentMessageRequest):
     if ticket_id not in CONVERSATIONS_DB:
         raise HTTPException(status_code=404, detail="Ticket not found")
     
@@ -95,10 +98,18 @@ def send_agent_message(ticket_id: str, req: SendAgentMessageRequest):
     
     ticket.messages.append(agent_msg)
     ticket.status = "agent"
+
+    # Instantly push human agent message to customer via WebSocket
+    await manager.broadcast_to_ticket(ticket_id, {
+        "type": "agent_message",
+        "message": agent_msg.model_dump(),
+        "status": ticket.status
+    })
+
     return ticket
 
 @router.post("/tickets/{ticket_id}/resolve", response_model=Conversation)
-def resolve_ticket(ticket_id: str, req: ResolveTicketRequest):
+async def resolve_ticket(ticket_id: str, req: ResolveTicketRequest):
     if ticket_id not in CONVERSATIONS_DB:
         raise HTTPException(status_code=404, detail="Ticket not found")
     
@@ -114,4 +125,113 @@ def resolve_ticket(ticket_id: str, req: ResolveTicketRequest):
     
     ticket.messages.append(sys_msg)
     ticket.status = "resolved"
+
+    await manager.broadcast_to_ticket(ticket_id, {
+        "type": "ticket_resolved",
+        "message": sys_msg.model_dump(),
+        "status": ticket.status
+    })
+
     return ticket
+
+@router.websocket("/ws/{ticket_id}")
+async def websocket_endpoint(websocket: WebSocket, ticket_id: str):
+    await manager.connect_ticket(websocket, ticket_id)
+    try:
+        while True:
+            data_str = await websocket.receive_text()
+            try:
+                payload = json.loads(data_str)
+            except Exception:
+                payload = {"type": "chat", "message": data_str}
+
+            user_text = payload.get("message", "").strip()
+            if not user_text:
+                continue
+
+            # Create & save customer message
+            now = time.time()
+            customer_msg = ChatMessage(
+                id=f"msg_{uuid.uuid4().hex[:8]}",
+                role="customer",
+                text=user_text,
+                ts=now
+            )
+
+            if ticket_id not in CONVERSATIONS_DB:
+                ticket = Conversation(
+                    id=ticket_id,
+                    customer=payload.get("customer_name") or "Gamer",
+                    email=payload.get("customer_email") or "player@gamevault.com",
+                    status="ai",
+                    priority="normal",
+                    topic="General inquiry",
+                    messages=[customer_msg],
+                    createdAt=now,
+                    isLive=True
+                )
+                CONVERSATIONS_DB[ticket_id] = ticket
+            else:
+                ticket = CONVERSATIONS_DB[ticket_id]
+                ticket.messages.append(customer_msg)
+
+            # Echo customer message back to ticket
+            await manager.broadcast_to_ticket(ticket_id, {
+                "type": "customer_message",
+                "message": customer_msg.model_dump()
+            })
+
+            # Check if current ticket status is in human agent mode
+            if ticket.status in ["waiting", "agent"]:
+                continue
+
+            # Create AI message container
+            ai_msg_id = f"msg_{uuid.uuid4().hex[:8]}"
+            await manager.broadcast_to_ticket(ticket_id, {
+                "type": "ai_stream_start",
+                "msg_id": ai_msg_id,
+                "ts": time.time()
+            })
+
+            # Stream Gemini AI response word-by-word
+            full_reply_text = ""
+            for chunk in get_gemini_reply_stream(user_text):
+                full_reply_text += chunk
+                await manager.broadcast_to_ticket(ticket_id, {
+                    "type": "ai_stream_chunk",
+                    "msg_id": ai_msg_id,
+                    "chunk": chunk
+                })
+                await asyncio.sleep(0.02) # Smooth typing delay
+
+            # Evaluate final response status & escalation
+            reply_eval = get_ai_reply(user_text)
+            ticket.topic = reply_eval.topic
+            should_escalate = reply_eval.escalate or (not reply_eval.confident)
+
+            if should_escalate:
+                ticket.status = "waiting"
+                ticket.escalatedAt = time.time()
+                reason = "Customer asked for agent or complex inquiry"
+                ticket.summary = build_summary(reply_eval.topic, reason, user_text)
+
+            ai_reply_msg = ChatMessage(
+                id=ai_msg_id,
+                role="ai",
+                text=full_reply_text or reply_eval.text,
+                ts=time.time(),
+                quickReplies=reply_eval.quick_replies
+            )
+            ticket.messages.append(ai_reply_msg)
+
+            await manager.broadcast_to_ticket(ticket_id, {
+                "type": "ai_stream_end",
+                "msg_id": ai_msg_id,
+                "message": ai_reply_msg.model_dump(),
+                "status": ticket.status,
+                "summary": ticket.summary
+            })
+
+    except WebSocketDisconnect:
+        manager.disconnect_ticket(websocket, ticket_id)
+
