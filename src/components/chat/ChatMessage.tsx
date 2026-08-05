@@ -1,10 +1,10 @@
 import { useState } from "react";
-import { Bot, Check, Headset, ShoppingCart, Star, User, Truck, PackageCheck } from "lucide-react";
+import { Bot, Check, Headset, ShoppingCart, Star, User, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { ChatMessageData } from "@/lib/support/types";
-import type { Game, Order } from "@/lib/games";
+import { games, ORDERS, type Game, type Order } from "@/lib/games";
 import { formatTime, useMounted } from "@/lib/time";
 
 function Timestamp({ ts }: { ts: number }) {
@@ -29,6 +29,32 @@ export function ChatMessage({ message }: { message: ChatMessageData }) {
   const isCustomer = message.role === "customer";
   const isAgent = message.role === "agent";
   const isAi = message.role === "ai";
+
+  // Client-side card detection fallback if backend didn't populate gameCard or orderCard
+  let gameCard = message.gameCard;
+  let orderCard = message.orderCard;
+
+  if (!gameCard && isAi && message.text) {
+    const lowerText = message.text.toLowerCase();
+    if (lowerText.includes("elden ring")) {
+      gameCard = games.find((g) => g.id === "elden-ring");
+    } else if (lowerText.includes("cyberpunk")) {
+      gameCard = games.find((g) => g.id === "cyberpunk-2077");
+    } else if (lowerText.includes("zelda")) {
+      gameCard = games.find((g) => g.id === "zelda-breath-of-the-wild");
+    } else if (lowerText.includes("gta") || lowerText.includes("grand theft auto")) {
+      gameCard = games.find((g) => g.id === "grand-theft-auto-v");
+    } else if (lowerText.includes("spider-man") || lowerText.includes("spiderman")) {
+      gameCard = games.find((g) => g.id === "marvels-spider-man-2");
+    }
+  }
+
+  if (!orderCard && isAi && message.text) {
+    const lowerText = message.text.toLowerCase();
+    if (lowerText.includes("gv-48219") || lowerText.includes("gamevault express")) {
+      orderCard = ORDERS["GV-48219"];
+    }
+  }
 
   return (
     <div className={cn("flex gap-2", isCustomer ? "flex-row-reverse" : "flex-row")}>
@@ -73,10 +99,10 @@ export function ChatMessage({ message }: { message: ChatMessageData }) {
         </div>
 
         {/* Rich Interactive Game Card */}
-        {message.gameCard && <GameCardWidget game={message.gameCard} />}
+        {gameCard && <GameCardWidget game={gameCard} />}
 
         {/* Rich Interactive Order Tracker Stepper */}
-        {message.orderCard && <OrderTrackerWidget order={message.orderCard} />}
+        {orderCard && <OrderTrackerWidget order={orderCard} />}
 
         <Timestamp ts={message.ts} />
       </div>

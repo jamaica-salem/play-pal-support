@@ -253,6 +253,8 @@ export function SupportProvider({ children }: { children: ReactNode }) {
                       ...m,
                       text: data.message?.text || m.text,
                       quickReplies: data.message?.quickReplies,
+                      gameCard: data.message?.gameCard,
+                      orderCard: data.message?.orderCard,
                     }
                   : m,
               ),
@@ -337,6 +339,8 @@ export function SupportProvider({ children }: { children: ReactNode }) {
               text: res.reply.text,
               ts: res.reply.ts,
               quickReplies: res.reply.quickReplies,
+              gameCard: res.reply.gameCard,
+              orderCard: res.reply.orderCard,
             },
             ...(res.escalated
               ? [

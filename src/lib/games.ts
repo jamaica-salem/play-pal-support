@@ -141,3 +141,8 @@ export const mockOrder = {
   eta: "Aug 7, 2026",
   tracking: "GVX-9931-4471",
 };
+
+export type Order = typeof mockOrder;
+export const ORDERS: Record<string, Order> = {
+  "GV-48219": mockOrder,
+};
