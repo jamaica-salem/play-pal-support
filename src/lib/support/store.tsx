@@ -143,7 +143,7 @@ type Ctx = {
   live: Conversation | undefined;
   aiTyping: boolean;
   agentTyping: boolean;
-  sendCustomerMessage: (text: string) => void;
+  sendCustomerMessage: (text: string, attachment?: string) => void;
   sendAgentMessage: (conversationId: string, text: string) => void;
   claimConversation: (conversationId: string) => void;
   resolveConversation: (conversationId: string) => void;
@@ -297,15 +297,18 @@ export function SupportProvider({ children }: { children: ReactNode }) {
   }, [backendTicketId, patch]);
 
   const sendCustomerMessage = useCallback(
-    async (text: string) => {
+    async (text: string, attachment?: string) => {
       const trimmed = text.trim();
-      if (!trimmed) return;
+      if (!trimmed && !attachment) return;
+
+      const msgText = trimmed || (attachment ? "📎 Attached screenshot/receipt" : "");
 
       // If WebSocket is connected, send over WebSocket for instant streaming
       if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
         wsRef.current.send(
           JSON.stringify({
-            message: trimmed,
+            message: msgText,
+            attachment,
             customer_name: "Gamer",
             customer_email: "player@gamevault.com",
           }),
@@ -314,7 +317,7 @@ export function SupportProvider({ children }: { children: ReactNode }) {
       }
 
       // Fallback to HTTP POST if WebSocket is connecting or offline
-      append(LIVE_ID, { role: "customer", text: trimmed });
+      append(LIVE_ID, { role: "customer", text: msgText, attachment });
       setAiTyping(true);
 
       try {

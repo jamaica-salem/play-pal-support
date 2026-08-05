@@ -10,6 +10,7 @@ export type ChatMessageData = {
   quickReplies?: string[] | undefined;
   gameCard?: Game | undefined;
   orderCard?: Order | undefined;
+  attachment?: string | undefined;
 };
 
 export type ConversationStatus = "ai" | "waiting" | "agent" | "resolved";

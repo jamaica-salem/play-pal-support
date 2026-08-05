@@ -98,6 +98,19 @@ export function ChatMessage({ message }: { message: ChatMessageData }) {
           {message.text}
         </div>
 
+        {/* Uploaded Image / Receipt Attachment Preview */}
+        {message.attachment && (
+          <div className="mt-1 overflow-hidden rounded-xl border border-border bg-card p-1 shadow-sm">
+            <a href={message.attachment} target="_blank" rel="noreferrer" title="Click to view full image">
+              <img
+                src={message.attachment}
+                alt="Attachment preview"
+                className="max-h-48 max-w-full rounded-lg object-contain transition-transform hover:scale-105"
+              />
+            </a>
+          </div>
+        )}
+
         {/* Rich Interactive Game Card */}
         {gameCard && <GameCardWidget game={gameCard} />}
 

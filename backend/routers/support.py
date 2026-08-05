@@ -177,7 +177,8 @@ async def websocket_endpoint(websocket: WebSocket, ticket_id: str):
                 id=f"msg_{uuid.uuid4().hex[:8]}",
                 role="customer",
                 text=user_text,
-                ts=now
+                ts=now,
+                attachment=payload.get("attachment")
             )
 
             if ticket_id not in CONVERSATIONS_DB:

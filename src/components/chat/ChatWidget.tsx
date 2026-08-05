@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, CheckCircle2, ChevronDown, Headset, MessageCircle, RotateCcw, Send, Star, X } from "lucide-react";
+import { Bot, CheckCircle2, ChevronDown, Headset, MessageCircle, Paperclip, RotateCcw, Send, Star, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ChatMessage, TypingIndicator } from "@/components/chat/ChatMessage";
@@ -19,9 +19,11 @@ const CSAT_TAGS = ["Fast Resolution", "Clear Explanation", "Friendly Agent", "Ea
 export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
+  const [attachment, setAttachment] = useState<string | null>(null);
   const { live, aiTyping, agentTyping, sendCustomerMessage, resetLive, submitFeedback } = useSupport();
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // CSAT Survey state
   const [rating, setRating] = useState(5);
@@ -32,7 +34,7 @@ export function ChatWidget() {
   useEffect(() => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [live?.messages.length, aiTyping, agentTyping, open, live?.status, submitted]);
+  }, [live?.messages.length, aiTyping, agentTyping, open, live?.status, submitted, attachment]);
 
   useEffect(() => {
     if (open) inputRef.current?.focus();
@@ -46,9 +48,22 @@ export function ChatWidget() {
   const quickReplies =
     status === "ai" ? (lastAiMessage?.quickReplies ?? QUICK_REPLIES) : [];
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (evt) => {
+      if (evt.target?.result) {
+        setAttachment(evt.target.result as string);
+      }
+    };
+    reader.readAsDataURL(file);
+  };
+
   const send = (text: string) => {
-    sendCustomerMessage(text);
+    sendCustomerMessage(text, attachment ?? undefined);
     setInput("");
+    setAttachment(null);
   };
 
   const toggleTag = (tag: string) => {
@@ -235,13 +250,48 @@ export function ChatWidget() {
             </div>
           )}
 
+          {/* Attachment Preview Bar */}
+          {attachment && (
+            <div className="flex items-center gap-2 border-t border-border bg-surface px-3.5 py-2 text-xs">
+              <Paperclip className="h-4 w-4 text-primary shrink-0" />
+              <span className="font-medium text-foreground truncate">1 Image attached</span>
+              <img src={attachment} alt="Upload preview" className="h-7 w-7 rounded object-cover border border-border" />
+              <button
+                type="button"
+                onClick={() => setAttachment(null)}
+                className="ml-auto rounded p-0.5 text-muted-foreground hover:bg-card hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
           <form
             onSubmit={(e) => {
               e.preventDefault();
               send(input);
             }}
-            className="flex items-center gap-2 border-t border-border p-3"
+            className="flex items-center gap-1.5 border-t border-border p-3"
           >
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileSelect}
+              accept="image/*"
+              className="hidden"
+            />
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              disabled={status === "resolved"}
+              onClick={() => fileInputRef.current?.click()}
+              title="Attach screenshot or receipt image"
+              className="h-10 w-10 shrink-0 rounded-xl text-muted-foreground hover:text-primary"
+            >
+              <Paperclip className="h-4 w-4" />
+            </Button>
+
             <Input
               ref={inputRef}
               value={input}
@@ -252,14 +302,14 @@ export function ChatWidget() {
                   ? "Conversation resolved."
                   : status === "agent"
                     ? "Message Dana…"
-                    : "Ask about games, orders, refunds…"
+                    : "Ask question or attach image…"
               }
               className="h-10 rounded-xl"
             />
             <Button
               type="submit"
               size="icon"
-              disabled={status === "resolved" || !input.trim()}
+              disabled={status === "resolved" || (!input.trim() && !attachment)}
               className="h-10 w-10 shrink-0 rounded-xl"
             >
               <Send className="h-4 w-4" />
