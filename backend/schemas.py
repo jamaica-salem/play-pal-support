@@ -46,6 +46,8 @@ class ChatMessage(BaseModel):
     text: str
     ts: float
     quickReplies: Optional[List[str]] = None
+    gameCard: Optional[Game] = None
+    orderCard: Optional[Order] = None
 
 class CSATFeedback(BaseModel):
     rating: int = Field(..., ge=1, le=5)

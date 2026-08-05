@@ -20,13 +20,17 @@ class AiReplyResult:
         confident: bool,
         topic: str,
         quick_replies: Optional[List[str]] = None,
-        escalate: bool = False
+        escalate: bool = False,
+        game_card: Optional[Game] = None,
+        order_card: Optional[object] = None
     ):
         self.text = text
         self.confident = confident
         self.topic = topic
         self.quick_replies = quick_replies or []
         self.escalate = escalate
+        self.game_card = game_card
+        self.order_card = order_card
 
 # --- Python Backend Tools for LLM Function Calling ---
 
@@ -138,12 +142,16 @@ STRICT BOUNDARY & SAFETY GUARDRAILS:
         elif "price" in input_text.lower() or "cost" in input_text.lower():
             topic = "Pricing inquiry"
 
+        game_card, order_card = find_card_attachments(input_text, text)
+
         return AiReplyResult(
             text=text,
             confident=True,
             topic=topic,
             quick_replies=quick_replies,
-            escalate=False
+            escalate=False,
+            game_card=game_card,
+            order_card=order_card
         )
     except Exception as e:
         logging.error(f"Gemini API call failed: {e}")
@@ -215,6 +223,30 @@ Acknowledge their specific concern, be direct and empathetic, and offer a clear 
         logging.error(f"Error generating copilot draft: {e}")
         return f"Hi! I've reviewed your request regarding {topic.lower()} and I can help resolve this for you right away."
 
+def find_card_attachments(input_text: str, text: str):
+    combined = (input_text + " " + text).lower()
+    game_card = None
+    order_card = None
+
+    for g in GAMES_DB:
+        if any(term in combined for term in [g.title.lower(), g.id.lower()]):
+            game_card = g
+            break
+        if "elden" in combined and "elden-ring" in g.id:
+            game_card = g
+            break
+        if "cyberpunk" in combined and "cyberpunk-2077" in g.id:
+            game_card = g
+            break
+        if "zelda" in combined and "zelda-botw" in g.id:
+            game_card = g
+            break
+
+    if "gv-48219" in combined or "track" in combined or "order" in combined or "where is" in combined:
+        order_card = ORDERS_DB.get("GV-48219")
+
+    return game_card, order_card
+
 # --- Rule-Based Fallback Engine ---
 
 ESCALATION_WORDS = ["agent", "human", "support representative", "real person", "representative", "speak to someone", "talk to someone"]
@@ -250,7 +282,28 @@ def get_rule_based_reply(input_text: str) -> AiReplyResult:
     if any(k in q for k in ["track", "my order", "where is", "delivery", "purchase"]):
         mock_order = ORDERS_DB.get("GV-48219")
         text = f"Order {mock_order.id} (placed {mock_order.placed}) is **{mock_order.status}** with {mock_order.carrier}. Tracking number {mock_order.tracking}, estimated delivery {mock_order.eta}." if mock_order else "Order not found."
-        return AiReplyResult(text=text, quick_replies=["Shipping Information", "Talk to Human Agent"], confident=True, topic="Order tracking")
+        return AiReplyResult(
+            text=text,
+            quick_replies=["Shipping Information", "Talk to Human Agent"],
+            confident=True,
+            topic="Order tracking",
+            order_card=mock_order
+        )
+
+    matched_game = None
+    for g in GAMES_DB:
+        if g.title.lower() in q or g.id.lower() in q:
+            matched_game = g
+            break
+
+    if matched_game:
+        return AiReplyResult(
+            text=f"**{matched_game.title}** ({matched_game.platform}) is available for **${matched_game.price:.2f}**! Release date: {matched_game.released}.",
+            quick_replies=["Track My Order", "Refund Policy"],
+            confident=True,
+            topic="Product inquiry",
+            game_card=matched_game
+        )
 
     if any(k in q for k in ["price", "cost", "how much", "game", "buy", "stock"]):
         lines = [f"• {g.title} ({g.platform}) — ${g.price:.2f}" for g in GAMES_DB]

@@ -70,7 +70,9 @@ def handle_chat(req: ChatRequest):
         role="ai",
         text=reply_res.text,
         ts=now + 0.01,
-        quickReplies=reply_res.quick_replies
+        quickReplies=reply_res.quick_replies,
+        gameCard=reply_res.game_card,
+        orderCard=reply_res.order_card
     )
 
     ticket.messages.append(ai_reply_msg)
@@ -240,7 +242,9 @@ async def websocket_endpoint(websocket: WebSocket, ticket_id: str):
                 role="ai",
                 text=full_reply_text or reply_eval.text,
                 ts=time.time(),
-                quickReplies=reply_eval.quick_replies
+                quickReplies=reply_eval.quick_replies,
+                gameCard=reply_eval.game_card,
+                orderCard=reply_eval.order_card
             )
             ticket.messages.append(ai_reply_msg)
 

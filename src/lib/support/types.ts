@@ -1,3 +1,5 @@
+import type { Game, Order } from "../games";
+
 export type MessageRole = "customer" | "ai" | "agent" | "system";
 
 export type ChatMessageData = {
@@ -6,6 +8,8 @@ export type ChatMessageData = {
   text: string;
   ts: number;
   quickReplies?: string[] | undefined;
+  gameCard?: Game | undefined;
+  orderCard?: Order | undefined;
 };
 
 export type ConversationStatus = "ai" | "waiting" | "agent" | "resolved";
