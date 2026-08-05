@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { Bot, Check, Headset, ShoppingCart, Star, User, Truck } from "lucide-react";
+import { Bot, Check, Copy, Headset, ShoppingCart, Star, User, Truck } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -11,6 +11,48 @@ function Timestamp({ ts }: { ts: number }) {
   const mounted = useMounted();
   if (!mounted) return null;
   return <span className="text-[11px] text-muted-foreground">{formatTime(ts)}</span>;
+}
+
+function extractCopyableCodes(text: string): string[] {
+  if (!text) return [];
+  const codes = new Set<string>();
+
+  // Match tracking number pattern: GVX-9931-4471 or GVX-8812-3390
+  const trackingMatches = text.match(/\bGVX-[A-Z0-9]{4}-[A-Z0-9]{4}\b/gi);
+  if (trackingMatches) trackingMatches.forEach((m) => codes.add(m));
+
+  // Match order ID pattern: GV-48219 or GV-XXXXX
+  const orderMatches = text.match(/\bGV-\d{5}\b/gi);
+  if (orderMatches) orderMatches.forEach((m) => codes.add(m));
+
+  // Match digital key pattern: XXXX-XXXX-XXXX
+  const keyMatches = text.match(/\b[A-Z0-9]{4}-[A-Z0-9]{4}-[A-Z0-9]{4}\b/gi);
+  if (keyMatches) keyMatches.forEach((m) => codes.add(m));
+
+  return Array.from(codes);
+}
+
+function CopyButton({ textToCopy, label }: { textToCopy: string; label?: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(textToCopy);
+    setCopied(true);
+    toast.success(`Copied ${label || textToCopy} to clipboard!`);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <button
+      type="button"
+      onClick={handleCopy}
+      title={`Copy ${label || "text"} to clipboard`}
+      className="inline-flex items-center gap-1 rounded-md border border-border bg-card px-2 py-0.5 text-[10px] font-medium text-muted-foreground transition-all hover:border-primary hover:text-primary shadow-xs"
+    >
+      {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+      {label ? (copied ? "Copied!" : `Copy ${label}`) : (copied ? "Copied" : "Copy")}
+    </button>
+  );
 }
 
 export function ChatMessage({ message }: { message: ChatMessageData }) {
@@ -55,6 +97,8 @@ export function ChatMessage({ message }: { message: ChatMessageData }) {
       orderCard = ORDERS["GV-48219"];
     }
   }
+
+  const copyableCodes = extractCopyableCodes(message.text);
 
   return (
     <div className={cn("flex gap-2", isCustomer ? "flex-row-reverse" : "flex-row")}>
@@ -117,7 +161,21 @@ export function ChatMessage({ message }: { message: ChatMessageData }) {
         {/* Rich Interactive Order Tracker Stepper */}
         {orderCard && <OrderTrackerWidget order={orderCard} />}
 
-        <Timestamp ts={message.ts} />
+        {/* 1-Click Copy Code Chips */}
+        {copyableCodes.length > 0 && (
+          <div className="mt-1 flex flex-wrap gap-1">
+            {copyableCodes.map((code) => (
+              <CopyButton key={code} textToCopy={code} label={code} />
+            ))}
+          </div>
+        )}
+
+        <div className="flex items-center gap-2">
+          <Timestamp ts={message.ts} />
+          {!isCustomer && message.text && copyableCodes.length === 0 && (
+            <CopyButton textToCopy={message.text} />
+          )}
+        </div>
       </div>
     </div>
   );
@@ -188,9 +246,12 @@ function OrderTrackerWidget({ order }: { order: Order }) {
           <Truck className="h-4 w-4 text-primary" />
           <span className="text-xs font-bold text-foreground">{order.id}</span>
         </div>
-        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-          {order.carrier}
-        </span>
+        <div className="flex items-center gap-1.5">
+          <CopyButton textToCopy={order.tracking} label={order.tracking} />
+          <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+            {order.carrier}
+          </span>
+        </div>
       </div>
 
       <div className="mt-3">
